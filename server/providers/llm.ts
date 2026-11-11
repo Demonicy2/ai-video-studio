@@ -18,19 +18,20 @@ function extractJsonObject(text: string): unknown {
 }
 
 export class OpenAICompatibleLLMProvider implements LLMProvider {
-  public readonly name = 'openai-llm';
+  public readonly name: string;
   private apiKey: string;
   private baseUrl: string;
   private model: string;
 
-  constructor(opts?: { apiKey?: string; baseUrl?: string; model?: string }) {
+  constructor(opts?: { apiKey?: string; baseUrl?: string; model?: string; providerLabel?: string }) {
+    this.name = opts?.providerLabel || 'openai-llm';
     this.apiKey = opts?.apiKey || process.env.OPENAI_API_KEY || '';
     this.baseUrl = (opts?.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
     this.model = opts?.model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
   }
 
   async generateStoryboard(input: GenerateStoryboardInput): Promise<StoryboardOutput> {
-    if (!this.apiKey) {
+    if (!this.apiKey && !this.baseUrl.includes('11434') && !this.baseUrl.includes('localhost')) {
       throw new ProviderError({
         message: 'OPENAI_API_KEY is not configured',
         code: 'AUTH_ERROR',
@@ -49,7 +50,7 @@ export class OpenAICompatibleLLMProvider implements LLMProvider {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`,
+            ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
           },
           body: JSON.stringify({
             model: this.model,
@@ -84,6 +85,74 @@ export class OpenAICompatibleLLMProvider implements LLMProvider {
         }
 
         return extractJsonObject(content) as StoryboardOutput;
+      },
+      { providerName: this.name, maxRetries: 3, timeoutMs: 45000 }
+    );
+  }
+}
+
+export class GeminiLLMProvider implements LLMProvider {
+  public readonly name = 'gemini-llm';
+  private apiKey: string;
+  private model: string;
+
+  constructor(opts?: { apiKey?: string; model?: string }) {
+    this.apiKey = opts?.apiKey || process.env.GEMINI_API_KEY || '';
+    this.model = opts?.model || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  }
+
+  async generateStoryboard(input: GenerateStoryboardInput): Promise<StoryboardOutput> {
+    if (!this.apiKey) {
+      throw new ProviderError({
+        message: 'GEMINI_API_KEY is not configured',
+        code: 'AUTH_ERROR',
+        provider: this.name,
+        retryable: false,
+        statusCode: 401,
+      });
+    }
+
+    const systemPrompt = buildStoryboardSystemPrompt(input);
+    const userPrompt = `Project Title: ${input.title}\nSource Type: ${input.sourceType}\nLanguage: ${input.language}\nStyle: ${input.style}\nAspect Ratio: ${input.aspectRatio}\nTarget Duration: ${input.targetDurationSec}s\n\nContent:\n${input.sourceText}`;
+
+    return await withRetryAndTimeout(
+      async (signal) => {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            generationConfig: {
+              temperature: 0.4,
+              responseMimeType: 'application/json',
+            },
+          }),
+          signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          const err = new Error(`Gemini HTTP ${res.status}: ${errText}`) as Error & { status?: number };
+          err.status = res.status;
+          throw err;
+        }
+
+        const data = (await res.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) {
+          throw new ProviderError({
+            message: 'Empty response from Gemini API',
+            code: 'INVALID_RESPONSE',
+            provider: this.name,
+            retryable: true,
+          });
+        }
+
+        return extractJsonObject(text) as StoryboardOutput;
       },
       { providerName: this.name, maxRetries: 3, timeoutMs: 45000 }
     );
@@ -158,4 +227,3 @@ export class AnthropicLLMProvider implements LLMProvider {
     );
   }
 }
-

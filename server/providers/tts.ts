@@ -1,5 +1,47 @@
 import type { SynthesizeTTSInput, SynthesizeTTSResult, TTSProvider } from './types.ts';
 import { ProviderError, withRetryAndTimeout } from './errors.ts';
+import { MockTTSProvider } from './mock.ts';
+
+/**
+ * Free Neural Vietnamese & English TTS Provider (fetches real spoken MP3 voiceover
+ * when the host has internet access, with automatic fallback to synthesized WAV when offline).
+ */
+export class FreeNeuralTTSProvider implements TTSProvider {
+  public readonly name = 'neural-free-tts';
+  private fallback = new MockTTSProvider();
+
+  async synthesize(input: SynthesizeTTSInput): Promise<SynthesizeTTSResult> {
+    const estimatedSec =
+      input.targetDurationSec || Math.max(2, Math.ceil(input.text.split(/\s+/).length / 2.8));
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      const tl = input.language === 'en' ? 'en' : 'vi';
+      const query = encodeURIComponent(input.text.slice(0, 200));
+      const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${tl}&q=${query}`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length > 256) {
+          return {
+            audioBuffer: buf,
+            format: 'mp3',
+            durationSec: estimatedSec,
+          };
+        }
+      }
+    } catch {
+      // Offline / sandboxed environment -> graceful fallback to local WAV generator
+    }
+    return await this.fallback.synthesize(input);
+  }
+}
 
 /**
  * ElevenLabs Multilingual v2 TTS Provider (supports both Vietnamese 'vi' and English 'en').
@@ -135,4 +177,3 @@ export class OpenAITTSProvider implements TTSProvider {
     );
   }
 }
-

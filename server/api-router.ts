@@ -23,6 +23,12 @@ import { processAvailableJobs } from './jobs/worker.ts';
 import { ensureDemoUser } from '../prisma/seed.ts';
 import { getStorage } from './storage/adapter.ts';
 import { sanitizeFilename } from '../lib/utils.ts';
+import {
+  getPublicRuntimeSettings,
+  updateRuntimeSettings,
+  type RuntimeProviderSettings,
+} from './providers/runtime-config.ts';
+import { enhanceScriptLocally } from './providers/mock.ts';
 
 export interface ApiRequestContext {
   method: string;
@@ -132,6 +138,50 @@ export async function handleApiRequest(req: ApiRequestContext): Promise<ApiRespo
     const user = await getUserFromCookieHeader(cookieHeader);
     if (!user) {
       return { status: 401, json: { error: 'Authentication required' } };
+    }
+
+    // 1b. AI Provider Runtime Settings & Ollama Discovery
+    if (pathname === '/api/settings/providers' && method === 'GET') {
+      const settings = getPublicRuntimeSettings();
+      let ollamaModels: string[] = [];
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1500);
+        const r = await fetch(`${settings.ollamaBaseUrl.replace(/\/$/, '')}/api/tags`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (r.ok) {
+          const d = (await r.json()) as { models?: Array<{ name: string }> };
+          ollamaModels = (d.models || []).map((m) => m.name);
+        }
+      } catch {}
+      return { status: 200, json: { settings, ollamaModels } };
+    }
+
+    if (pathname === '/api/settings/providers' && method === 'POST') {
+      const patch = (req.body || {}) as Partial<RuntimeProviderSettings>;
+      updateRuntimeSettings(patch);
+      return { status: 200, json: { settings: getPublicRuntimeSettings() } };
+    }
+
+    // 1c. AI Magic Script & Prompt Enhancer
+    if (pathname === '/api/ai/enhance-prompt' && method === 'POST') {
+      const body = (req.body || {}) as {
+        title?: string;
+        idea?: string;
+        language?: 'vi' | 'en' | 'mixed';
+        style?: string;
+        characterName?: string;
+      };
+      const enhanced = enhanceScriptLocally({
+        title: body.title || '',
+        idea: body.idea || '',
+        language: body.language || 'vi',
+        style: body.style || 'anime fairy tale',
+        characterName: body.characterName,
+      });
+      return { status: 200, json: enhanced };
     }
 
     // 2. Character Reference Image Upload (validates MIME type and max 5 MB size)

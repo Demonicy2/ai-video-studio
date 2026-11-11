@@ -2,6 +2,27 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
+  Sparkles,
+  Wand2,
+  Film,
+  Settings,
+  Cpu,
+  Layers,
+  Volume2,
+  Download,
+  Plus,
+  Trash2,
+  RefreshCw,
+  Video,
+  Subtitles,
+  ArrowUp,
+  ArrowDown,
+  LogOut,
+  FolderKanban,
+  CheckCircle2,
+  Sliders,
+} from 'lucide-react';
+import {
   Badge,
   Button,
   Card,
@@ -10,6 +31,7 @@ import {
   Skeleton,
   Textarea,
 } from './ui/primitives.tsx';
+import { CinemaCanvasPlayer, type CinemaSceneSpec } from './CinemaCanvasPlayer.tsx';
 import { t, type Locale } from '../lib/i18n.ts';
 
 interface DialogueItem {
@@ -78,12 +100,53 @@ interface UserProfile {
   dailyQuotaLimit?: number;
 }
 
-const STYLE_CHIPS = [
-  'anime fairy tale',
-  'realistic cinematic',
-  '3D cartoon',
-  'cyberpunk neon',
-  'watercolor storybook',
+interface ProviderSettingsState {
+  llmProvider: string;
+  videoProvider: string;
+  ttsProvider: string;
+  ollamaBaseUrl: string;
+  ollamaModel: string;
+  geminiModel: string;
+  veoModel: string;
+  openaiModel: string;
+  anthropicModel: string;
+  hasGeminiKey: boolean;
+  hasOpenaiKey: boolean;
+  hasAnthropicKey: boolean;
+  hasElevenlabsKey: boolean;
+}
+
+const STYLE_PRESETS = [
+  {
+    id: 'cyberpunk neon',
+    title: 'Cyberpunk 2099',
+    desc: 'Neon rain, hologram reflections & anamorphic lens flare',
+    gradient: 'from-fuchsia-600 via-violet-700 to-cyan-500',
+  },
+  {
+    id: 'anime fairy tale',
+    title: 'Anime Makoto Shinkai',
+    desc: 'Volumetric sky clouds, golden twilight & sakura particles',
+    gradient: 'from-indigo-600 via-purple-600 to-pink-500',
+  },
+  {
+    id: 'realistic cinematic',
+    title: 'Cinema IMAX 8K',
+    desc: 'ARRI Alexa 65 depth, dramatic chiaroscuro & film grain',
+    gradient: 'from-amber-600 via-orange-700 to-slate-800',
+  },
+  {
+    id: '3D cartoon',
+    title: '3D Pixar Studio',
+    desc: 'Subsurface scattering, vibrant lighting & expressive charm',
+    gradient: 'from-sky-500 via-blue-600 to-emerald-500',
+  },
+  {
+    id: 'watercolor storybook',
+    title: 'Storybook Art',
+    desc: 'Delicate hand-painted watercolor wash & warm ink lines',
+    gradient: 'from-rose-500 via-amber-500 to-teal-600',
+  },
 ];
 
 const CAMERA_MOTIONS = [
@@ -129,11 +192,11 @@ const SAMPLE_TEMPLATES = [
     ],
   },
   {
-    label: '🚀 3 Bí Quyết Học Tập Với AI (3D Cartoon)',
+    label: '🚀 3 Bí Quyết Học Tập Với AI (3D Pixar)',
     title: '3 Bí Quyết Tăng Tốc Học Tập Cùng AI',
     sourceType: 'script' as const,
     sourceText:
-      'Cảnh 1: Đặt câu hỏi đúng trọng tâm. Cảnh 2: Tóm tắt kiến thức bằng sơ đồ tư duy. Cảnh 3: Tự kiểm tra lại bằng bài tập thực hành.',
+      'Cảnh 1: Đặt câu hỏi đúng trọng tâm để khai phá kiến thức sâu. Cảnh 2: Tóm tắt kiến thức bằng sơ đồ tư duy trực quan. Cảnh 3: Tự kiểm tra lại bằng bài tập thực hành mỗi ngày.',
     language: 'vi' as const,
     style: '3D cartoon',
     characters: [
@@ -164,19 +227,32 @@ export function StudioApp() {
     null
   );
 
+  // AI Settings Modal state
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [providerSettings, setProviderSettings] = useState<ProviderSettingsState | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [cfgLlm, setCfgLlm] = useState('smart-local');
+  const [cfgVideo, setCfgVideo] = useState('cinema-canvas');
+  const [cfgTts, setCfgTts] = useState('neural-free');
+  const [cfgGeminiKey, setCfgGeminiKey] = useState('');
+  const [cfgOpenaiKey, setCfgOpenaiKey] = useState('');
+  const [cfgElevenKey, setCfgElevenKey] = useState('');
+  const [cfgOllamaModel, setCfgOllamaModel] = useState('llama3.2');
+
   // Wizard state (3 steps)
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
   const [wizTitle, setWizTitle] = useState('');
   const [wizSourceType, setWizSourceType] = useState<'idea' | 'script'>('idea');
   const [wizSourceText, setWizSourceText] = useState('');
   const [wizLanguage, setWizLanguage] = useState<'vi' | 'en' | 'mixed'>('vi');
-  const [wizStyle, setWizStyle] = useState('anime fairy tale');
+  const [wizStyle, setWizStyle] = useState('cyberpunk neon');
   const [wizCharacters, setWizCharacters] = useState<CharacterItem[]>([
     { name: 'Linh', description: 'young Vietnamese explorer in a glowing cyberpunk jacket' },
   ]);
   const [wizAspectRatio, setWizAspectRatio] = useState<'9:16' | '16:9' | '1:1'>('9:16');
   const [wizTargetDuration, setWizTargetDuration] = useState(15);
   const [submittingWizard, setSubmittingWizard] = useState(false);
+  const [enhancingScript, setEnhancingScript] = useState(false);
 
   // Result page & Live Multi-Scene Cinema Preview state
   const [showSubtitles, setShowSubtitles] = useState(true);
@@ -196,6 +272,21 @@ export function StudioApp() {
       const data = await res.json();
       setUser(data.user);
     }
+  }, []);
+
+  const fetchProviderSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/providers');
+      if (res.ok) {
+        const data = await res.json();
+        setProviderSettings(data.settings);
+        setOllamaModels(data.ollamaModels || []);
+        setCfgLlm(data.settings.llmProvider);
+        setCfgVideo(data.settings.videoProvider);
+        setCfgTts(data.settings.ttsProvider);
+        setCfgOllamaModel(data.settings.ollamaModel || 'llama3.2');
+      }
+    } catch {}
   }, []);
 
   const fetchProjects = useCallback(async () => {
@@ -231,15 +322,15 @@ export function StudioApp() {
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);
-          await fetchProjects();
+          await Promise.all([fetchProjects(), fetchProviderSettings()]);
         }
       } finally {
         setAuthChecking(false);
       }
     })();
-  }, [fetchProjects]);
+  }, [fetchProjects, fetchProviderSettings]);
 
-  // Live polling every 1.5s when activeProject is in draft, generating, or assembling
+  // Live polling every 1.2s when activeProject is in draft, generating, or assembling
   useEffect(() => {
     if (!activeProject || view !== 'project') return;
     const isBusy =
@@ -250,37 +341,10 @@ export function StudioApp() {
 
     const timer = setInterval(() => {
       fetchActiveProject(activeProject.id);
-    }, 1500);
+    }, 1200);
 
     return () => clearInterval(timer);
   }, [activeProject, view, fetchActiveProject]);
-
-  // Multi-Scene Cinema Preview sequencer (plays each scene's TTS audio & advances scenes automatically)
-  useEffect(() => {
-    if (!cinemaPlaying || !activeProject || activeProject.scenes.length === 0) return;
-    const scene = activeProject.scenes[cinemaSceneIdx];
-    if (!scene) {
-      setCinemaPlaying(false);
-      setCinemaSceneIdx(0);
-      return;
-    }
-
-    if (scene.audioPath && audioRef.current) {
-      audioRef.current.src = `/api/storage/${scene.audioPath}`;
-      audioRef.current.play().catch(() => {});
-    }
-
-    const timer = setTimeout(() => {
-      if (cinemaSceneIdx + 1 < activeProject.scenes.length) {
-        setCinemaSceneIdx(cinemaSceneIdx + 1);
-      } else {
-        setCinemaPlaying(false);
-        setCinemaSceneIdx(0);
-      }
-    }, (scene.durationSec || 5) * 1000);
-
-    return () => clearTimeout(timer);
-  }, [cinemaPlaying, cinemaSceneIdx, activeProject]);
 
   async function handleAuthSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -296,8 +360,8 @@ export function StudioApp() {
       return;
     }
     await refreshUser();
-    showToast(`Xin chào, ${data.user.name}!`, 'success');
-    await fetchProjects();
+    showToast(`Chào mừng đến với AI Video Studio, ${data.user.name}!`, 'success');
+    await Promise.all([fetchProjects(), fetchProviderSettings()]);
   }
 
   async function handleDemoLogin() {
@@ -305,8 +369,8 @@ export function StudioApp() {
     const data = await res.json();
     if (res.ok) {
       await refreshUser();
-      showToast(`Đã đăng nhập: ${data.user.email}`, 'success');
-      await fetchProjects();
+      showToast(`Đã đăng nhập Studio: ${data.user.email}`, 'success');
+      await Promise.all([fetchProjects(), fetchProviderSettings()]);
     }
   }
 
@@ -315,6 +379,55 @@ export function StudioApp() {
     setUser(null);
     setActiveProject(null);
     setView('dashboard');
+  }
+
+  async function handleSaveProviderSettings() {
+    const payload: Record<string, string> = {
+      llmProvider: cfgLlm,
+      videoProvider: cfgVideo,
+      ttsProvider: cfgTts,
+      ollamaModel: cfgOllamaModel,
+    };
+    if (cfgGeminiKey.trim()) payload.geminiApiKey = cfgGeminiKey.trim();
+    if (cfgOpenaiKey.trim()) payload.openaiApiKey = cfgOpenaiKey.trim();
+    if (cfgElevenKey.trim()) payload.elevenlabsApiKey = cfgElevenKey.trim();
+
+    const res = await fetch('/api/settings/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      await fetchProviderSettings();
+      setShowSettingsModal(false);
+      showToast('Đã lưu cấu hình AI Engine thành công!', 'success');
+    }
+  }
+
+  async function handleMagicEnhanceIdea() {
+    setEnhancingScript(true);
+    try {
+      const res = await fetch('/api/ai/enhance-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: wizTitle,
+          idea: wizSourceText,
+          language: wizLanguage,
+          style: wizStyle,
+          characterName: wizCharacters[0]?.name,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWizTitle(data.enhancedTitle);
+        setWizSourceText(data.enhancedScript);
+        setWizSourceType('script');
+        showToast('✨ AI Director đã mở rộng kịch bản phân cảnh chi tiết!', 'success');
+      }
+    } finally {
+      setEnhancingScript(false);
+    }
   }
 
   async function handleDeleteProject(e: React.MouseEvent, projectId: string) {
@@ -358,7 +471,7 @@ export function StudioApp() {
 
   async function handleCreateProjectAndStoryboard() {
     if (!wizTitle.trim() || wizSourceText.trim().length < 5) {
-      showToast('Vui lòng nhập tiêu đề và ý tưởng/kịch bản (ít nhất 5 ký tự)', 'error');
+      showToast('Vui lòng nhập tiêu đề và ý tưởng/kịch bản (hoặc bấm nút Mẫu gợi ý)', 'error');
       return;
     }
     setSubmittingWizard(true);
@@ -384,8 +497,9 @@ export function StudioApp() {
       }
       setActiveProject(data.project);
       setForceEditorMode(false);
+      setCinemaSceneIdx(0);
       setView('project');
-      showToast('Đang tạo Storyboard từ kịch bản...', 'info');
+      showToast('✨ AI Director đang phân tích kịch bản và dựng Storyboard...', 'info');
     } finally {
       setSubmittingWizard(false);
     }
@@ -473,7 +587,7 @@ export function StudioApp() {
       showToast(data.error || 'Cannot start generation', 'error');
       return;
     }
-    showToast('Đã bắt đầu tạo Video & TTS cho tất cả phân cảnh!', 'success');
+    showToast('🚀 Đang kết xuất Video AI & Giọng đọc Neural TTS cho toàn bộ phân cảnh!', 'success');
     await fetchActiveProject(activeProject.id);
   }
 
@@ -490,14 +604,30 @@ export function StudioApp() {
       showToast(data.error || 'Cannot regenerate scene', 'error');
       return;
     }
-    showToast('Đang tạo lại phân cảnh và ghép lại MP4...', 'info');
+    showToast('Đang kết xuất lại phân cảnh và ghép lại MP4...', 'info');
     await fetchActiveProject(activeProject.id);
   }
 
-  function playSceneTtsAudio(audioPath: string) {
-    if (!audioRef.current) return;
-    audioRef.current.src = `/api/storage/${audioPath}`;
-    audioRef.current.play().catch(() => {});
+  function playSceneVoicePreview(scene: SceneItem) {
+    let dialogueArr: DialogueItem[] = [];
+    try {
+      dialogueArr = JSON.parse(scene.dialogue || '[]');
+    } catch {}
+    const text = dialogueArr[0]?.text || scene.narration || scene.title;
+    const lang = dialogueArr[0]?.language || (activeProject?.language === 'en' ? 'en' : 'vi');
+
+    if (scene.audioPath && audioRef.current) {
+      audioRef.current.src = `/api/storage/${scene.audioPath}`;
+      audioRef.current.play().catch(() => {});
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = lang === 'en' ? 'en-US' : 'vi-VN';
+        window.speechSynthesis.speak(utter);
+      } catch {}
+    }
   }
 
   function renderStatusBadge(status: ProjectItem['status'] | SceneItem['status']) {
@@ -514,22 +644,27 @@ export function StudioApp() {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 p-8 flex items-center justify-center">
-        <Skeleton className="h-64 w-full max-w-md" />
+      <div className="min-h-screen studio-bg text-slate-100 p-8 flex items-center justify-center">
+        <Skeleton className="h-72 w-full max-w-md" />
       </div>
     );
   }
 
-  // SCREEN 1: AUTH PAGE
+  // SCREEN 1: AUTH PAGE (Cinema Studio Glassmorphism)
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-lg shadow-lg">
-            AI
+      <div className="min-h-screen studio-bg text-slate-100 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+        <div className="mb-8 flex items-center gap-3.5 z-10">
+          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-violet-600 via-indigo-600 to-cyan-400 flex items-center justify-center shadow-xl shadow-violet-600/30">
+            <Film className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t(locale, 'appName')}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-cyan-300 bg-clip-text text-transparent">
+                {t(locale, 'appName')}
+              </h1>
+              <Badge variant="info">PRO STUDIO</Badge>
+            </div>
             <p className="text-xs text-slate-400">{t(locale, 'tagline')}</p>
           </div>
           <Button
@@ -542,15 +677,20 @@ export function StudioApp() {
           </Button>
         </div>
 
-        <Card className="w-full max-w-md p-6 space-y-5" data-testid="auth-card">
-          <h2 className="text-xl font-semibold">
-            {authMode === 'login' ? t(locale, 'loginTitle') : t(locale, 'registerTitle')}
-          </h2>
+        <Card className="w-full max-w-md p-7 space-y-5 z-10" data-testid="auth-card">
+          <div className="space-y-1">
+            <h2 className="text-xl font-bold">
+              {authMode === 'login' ? t(locale, 'loginTitle') : t(locale, 'registerTitle')}
+            </h2>
+            <p className="text-xs text-slate-400">
+              AI Storyboard Director • Multi-Scene Video • Vietnamese & English Neural TTS
+            </p>
+          </div>
 
           <form onSubmit={handleAuthSubmit} className="space-y-4">
             {authMode === 'register' && (
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                   {t(locale, 'nameLabel')}
                 </label>
                 <Input
@@ -562,7 +702,7 @@ export function StudioApp() {
               </div>
             )}
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 {t(locale, 'emailLabel')}
               </label>
               <Input
@@ -575,7 +715,7 @@ export function StudioApp() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                 {t(locale, 'passwordLabel')}
               </label>
               <Input
@@ -588,28 +728,32 @@ export function StudioApp() {
               />
             </div>
 
-            <Button type="submit" className="w-full" data-testid="auth-submit-btn">
+            <Button type="submit" className="w-full py-2.5" data-testid="auth-submit-btn">
+              <Sparkles className="h-4 w-4" />
               {authMode === 'login' ? t(locale, 'loginBtn') : t(locale, 'registerBtn')}
             </Button>
           </form>
 
           <div className="relative py-1 text-center">
-            <span className="text-xs text-slate-500">HOẶC / OR</span>
+            <span className="text-[11px] uppercase tracking-widest text-slate-500">
+              TRẢI NGHIỆM NHANH / INSTANT STUDIO ACCESS
+            </span>
           </div>
 
           <Button
-            variant="secondary"
-            className="w-full"
+            variant="magic"
+            className="w-full py-2.5"
             onClick={handleDemoLogin}
             data-testid="demo-login-btn"
           >
-            ⚡ {t(locale, 'demoLoginBtn')}
+            <Wand2 className="h-4 w-4" />
+            {t(locale, 'demoLoginBtn')}
           </Button>
 
           <button
             type="button"
             onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
-            className="w-full text-center text-xs text-indigo-400 hover:underline"
+            className="w-full text-center text-xs text-violet-400 hover:underline"
           >
             {authMode === 'login' ? t(locale, 'switchRegister') : t(locale, 'switchLogin')}
           </button>
@@ -621,15 +765,33 @@ export function StudioApp() {
   const totalSceneDuration =
     activeProject?.scenes.reduce((acc, s) => acc + Number(s.durationSec || 0), 0) || 0;
   const estimatedCost = (totalSceneDuration * costPerSec).toFixed(2);
-  const currentCinemaScene =
-    activeProject?.scenes[cinemaSceneIdx] || activeProject?.scenes[0] || null;
+
+  const cinemaScenes: CinemaSceneSpec[] = (activeProject?.scenes || []).map((s) => {
+    let d: DialogueItem[] = [];
+    try {
+      d = JSON.parse(s.dialogue || '[]');
+    } catch {}
+    return {
+      id: s.id,
+      index: s.index,
+      title: s.title,
+      narration: s.narration,
+      dialogueText: d[0]?.text || s.narration || s.title,
+      speaker: d[0]?.speaker || activeProject?.characters?.[0]?.name || 'Narrator',
+      language: d[0]?.language || (activeProject?.language === 'en' ? 'en' : 'vi'),
+      visualPrompt: s.visualPrompt,
+      cameraMotion: s.cameraMotion,
+      durationSec: s.durationSec,
+      audioPath: s.audioPath,
+    };
+  });
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen studio-bg text-slate-100 flex flex-col">
       <audio ref={audioRef} className="hidden" />
 
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/90 backdrop-blur px-4 sm:px-8 py-3 flex items-center justify-between">
+      {/* Top Glassmorphic Studio Header */}
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#070911]/85 backdrop-blur-xl px-4 sm:px-8 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -638,24 +800,30 @@ export function StudioApp() {
               setView('dashboard');
               fetchProjects();
             }}
-            className="flex items-center gap-2.5 text-left focus:outline-none"
+            className="flex items-center gap-3 text-left focus:outline-none cursor-pointer"
           >
-            <div className="h-9 w-9 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white shadow">
-              AI
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-600 via-indigo-600 to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25">
+              <Film className="h-5 w-5" />
             </div>
             <div>
-              <span className="font-bold text-base tracking-tight block">
-                {t(locale, 'appName')}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-base tracking-tight text-white">
+                  {t(locale, 'appName')}
+                </span>
+                <span className="rounded-md bg-violet-500/20 border border-violet-500/30 px-1.5 py-0.5 text-[10px] font-bold text-violet-300">
+                  GEN-3 STUDIO
+                </span>
+              </div>
               <span className="text-[11px] text-slate-400 hidden sm:block">
-                {t(locale, 'quotaBadge')}: {user.dailyQuotaUsed ?? 0}/{user.dailyQuotaLimit ?? 30}{' '}
-                scenes
+                LLM: <strong className="text-cyan-300">{providerSettings?.llmProvider || 'smart-local'}</strong> • TTS:{' '}
+                <strong className="text-violet-300">{providerSettings?.ttsProvider || 'neural-free'}</strong> •{' '}
+                {t(locale, 'quotaBadge')}: {user.dailyQuotaUsed ?? 0}/{user.dailyQuotaLimit ?? 30}
               </span>
             </div>
           </button>
         </div>
 
-        <nav className="flex items-center gap-2 sm:gap-3">
+        <nav className="flex items-center gap-2">
           <Button
             variant={view === 'dashboard' ? 'secondary' : 'ghost'}
             size="sm"
@@ -666,8 +834,10 @@ export function StudioApp() {
             }}
             data-testid="nav-dashboard-btn"
           >
-            {t(locale, 'navDashboard')}
+            <FolderKanban className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{t(locale, 'navDashboard')}</span>
           </Button>
+
           <Button
             variant="primary"
             size="sm"
@@ -680,8 +850,23 @@ export function StudioApp() {
             }}
             data-testid="nav-new-project-btn"
           >
-            + {t(locale, 'navNewProject')}
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>{t(locale, 'navNewProject')}</span>
           </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              fetchProviderSettings();
+              setShowSettingsModal(true);
+            }}
+            title="Cấu hình AI Engine & API Keys"
+          >
+            <Cpu className="h-3.5 w-3.5 text-cyan-400" />
+            <span className="hidden md:inline">AI Engine</span>
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -691,63 +876,226 @@ export function StudioApp() {
           >
             {locale.toUpperCase()}
           </Button>
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
-            {t(locale, 'navLogout')}
+
+          <Button variant="ghost" size="sm" onClick={handleLogout} title={t(locale, 'navLogout')}>
+            <LogOut className="h-4 w-4" />
           </Button>
         </nav>
       </header>
+
+      {/* AI ENGINE & API KEYS SETTINGS MODAL */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <Card className="w-full max-w-xl p-6 space-y-5 border-violet-500/30">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <Settings className="h-5 w-5 text-violet-400" />
+                <h3 className="text-lg font-bold">Cấu hình AI Engine & Cloud API Keys</h3>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setShowSettingsModal(false)}>
+                ✕
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  1. Storyboard LLM
+                </label>
+                <select
+                  value={cfgLlm}
+                  onChange={(e) => setCfgLlm(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-[#070911] px-3 py-2 text-xs text-white"
+                >
+                  <option value="smart-local">✨ Smart AI Director (Sẵn có)</option>
+                  <option value="ollama">🦙 Local Ollama ({ollamaModels.length} models)</option>
+                  <option value="gemini">💎 Google Gemini 2.0 Flash</option>
+                  <option value="openai">🧠 OpenAI GPT-4o</option>
+                  <option value="anthropic">🎭 Anthropic Claude 3.5</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  2. Video Render Engine
+                </label>
+                <select
+                  value={cfgVideo}
+                  onChange={(e) => setCfgVideo(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-[#070911] px-3 py-2 text-xs text-white"
+                >
+                  <option value="cinema-canvas">🎬 Cinema Canvas 60fps + Flux</option>
+                  <option value="veo">🎥 Google Veo 2 (Gemini API)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  3. Giọng đọc TTS (VI/EN)
+                </label>
+                <select
+                  value={cfgTts}
+                  onChange={(e) => setCfgTts(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-[#070911] px-3 py-2 text-xs text-white"
+                >
+                  <option value="neural-free">🎙 Neural VI/EN Voice (Miễn phí)</option>
+                  <option value="elevenlabs">🔊 ElevenLabs Multilingual v2</option>
+                  <option value="openai">🗣 OpenAI TTS HD</option>
+                </select>
+              </div>
+            </div>
+
+            {cfgLlm === 'ollama' && (
+              <div>
+                <label className="block text-xs font-semibold text-cyan-300 mb-1">
+                  Model Ollama trên máy của bạn (`http://127.0.0.1:11434`):
+                </label>
+                <Input
+                  value={cfgOllamaModel}
+                  onChange={(e) => setCfgOllamaModel(e.target.value)}
+                  placeholder="VD: llama3.2, qwen2.5, gemma2..."
+                />
+                {ollamaModels.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {ollamaModels.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setCfgOllamaModel(m)}
+                        className="rounded-lg bg-cyan-500/15 border border-cyan-500/30 px-2.5 py-1 text-xs text-cyan-300"
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-3 pt-1">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">
+                  Google Gemini API Key (Dùng cho cả Gemini Storyboard & Google Veo 2 Video):
+                </label>
+                <Input
+                  type="password"
+                  value={cfgGeminiKey}
+                  onChange={(e) => setCfgGeminiKey(e.target.value)}
+                  placeholder={
+                    providerSettings?.hasGeminiKey
+                      ? '•••••••••••••••• (Đã lưu key)'
+                      : 'AIzaSy... (Lấy miễn phí tại aistudio.google.com)'
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">OpenAI API Key:</label>
+                  <Input
+                    type="password"
+                    value={cfgOpenaiKey}
+                    onChange={(e) => setCfgOpenaiKey(e.target.value)}
+                    placeholder={providerSettings?.hasOpenaiKey ? '•••••••• (Đã lưu)' : 'sk-...'}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">ElevenLabs API Key:</label>
+                  <Input
+                    type="password"
+                    value={cfgElevenKey}
+                    onChange={(e) => setCfgElevenKey(e.target.value)}
+                    placeholder={providerSettings?.hasElevenlabsKey ? '•••••••• (Đã lưu)' : 'xi-...'}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => setShowSettingsModal(false)}>
+                Đóng
+              </Button>
+              <Button variant="primary" onClick={handleSaveProviderSettings}>
+                <CheckCircle2 className="h-4 w-4" />
+                Lưu cấu hình AI
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toast && (
         <div
           role="status"
-          className={`fixed bottom-5 right-5 z-50 rounded-xl px-4 py-3 text-sm font-medium shadow-xl border ${
+          className={`fixed bottom-5 right-5 z-50 rounded-2xl px-4 py-3 text-sm font-semibold shadow-2xl border backdrop-blur-xl ${
             toast.type === 'error'
-              ? 'bg-rose-950/95 border-rose-500/40 text-rose-200'
+              ? 'bg-rose-950/90 border-rose-500/40 text-rose-200'
               : toast.type === 'success'
-              ? 'bg-emerald-950/95 border-emerald-500/40 text-emerald-200'
-              : 'bg-slate-900/95 border-indigo-500/40 text-indigo-200'
+              ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200'
+              : 'bg-[#0d101b]/95 border-violet-500/40 text-violet-200'
           }`}
         >
           {toast.text}
         </div>
       )}
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-6">
+      {/* Main Workspace */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-6">
         {/* SCREEN 2: DASHBOARD */}
         {view === 'dashboard' && (
-          <div className="space-y-6" data-testid="dashboard-screen">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h1 className="text-2xl font-bold">{t(locale, 'dashboardHeading')}</h1>
-                <p className="text-sm text-slate-400">{t(locale, 'dashboardSub')}</p>
+          <div className="space-y-8" data-testid="dashboard-screen">
+            {/* Hero Studio Banner */}
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-r from-violet-950/70 via-[#0e1224] to-cyan-950/60 p-6 sm:p-8 shadow-2xl">
+              <div className="max-w-2xl space-y-3">
+                <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-500/15 px-3 py-1 text-xs font-semibold text-violet-300">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  AI Storyboard • 60fps Cinema Canvas • Neural Vietnamese & English TTS
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+                  {t(locale, 'dashboardHeading')}
+                </h1>
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {t(locale, 'dashboardSub')}
+                </p>
+                <div className="pt-2 flex flex-wrap gap-3">
+                  <Button
+                    size="lg"
+                    onClick={() => {
+                      setWizardStep(1);
+                      setWizTitle('');
+                      setWizSourceText('');
+                      setView('wizard');
+                    }}
+                    data-testid="dashboard-new-project-btn"
+                  >
+                    <Wand2 className="h-4 w-4" />
+                    {t(locale, 'navNewProject')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={() => setShowSettingsModal(true)}
+                  >
+                    <Sliders className="h-4 w-4" />
+                    Cấu hình AI Engine
+                  </Button>
+                </div>
               </div>
-              <Button
-                onClick={() => {
-                  setWizardStep(1);
-                  setWizTitle('');
-                  setWizSourceText('');
-                  setView('wizard');
-                }}
-                data-testid="dashboard-new-project-btn"
-              >
-                + {t(locale, 'navNewProject')}
-              </Button>
             </div>
 
             {loadingProjects ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <Skeleton className="h-48" />
-                <Skeleton className="h-48" />
-                <Skeleton className="h-48" />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                <Skeleton className="h-56" />
+                <Skeleton className="h-56" />
+                <Skeleton className="h-56" />
               </div>
             ) : projects.length === 0 ? (
               <Card className="p-12 text-center space-y-4">
-                <div className="mx-auto h-12 w-12 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-xl font-bold">
-                  🎬
+                <div className="mx-auto h-14 w-14 rounded-2xl bg-gradient-to-br from-violet-600/25 to-cyan-500/25 border border-violet-500/30 text-violet-300 flex items-center justify-center">
+                  <Video className="h-7 w-7" />
                 </div>
-                <h3 className="text-lg font-semibold">{t(locale, 'emptyProjectsTitle')}</h3>
+                <h3 className="text-lg font-bold">{t(locale, 'emptyProjectsTitle')}</h3>
                 <p className="text-sm text-slate-400 max-w-md mx-auto">
                   {t(locale, 'emptyProjectsDesc')}
                 </p>
@@ -758,53 +1106,72 @@ export function StudioApp() {
                   }}
                   data-testid="empty-create-btn"
                 >
+                  <Sparkles className="h-4 w-4" />
                   {t(locale, 'createFirstBtn')}
                 </Button>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {projects.map((proj) => (
-                  <Card
-                    key={proj.id}
-                    className="p-5 flex flex-col justify-between hover:border-indigo-500/50 transition-all cursor-pointer"
-                    onClick={() => {
-                      setActiveProject(proj);
-                      setForceEditorMode(false);
-                      setCinemaPlaying(false);
-                      setView('project');
-                    }}
-                    data-testid={`project-card-${proj.id}`}
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-semibold text-base line-clamp-1">{proj.title}</h3>
-                        {renderStatusBadge(proj.status)}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {projects.map((proj) => {
+                  const preset =
+                    STYLE_PRESETS.find((s) => s.id === proj.style) || STYLE_PRESETS[0];
+                  return (
+                    <Card
+                      key={proj.id}
+                      className="p-5 flex flex-col justify-between hover:border-violet-500/50 transition-all cursor-pointer group"
+                      onClick={() => {
+                        setActiveProject(proj);
+                        setForceEditorMode(false);
+                        setCinemaPlaying(false);
+                        setCinemaSceneIdx(0);
+                        setView('project');
+                      }}
+                      data-testid={`project-card-${proj.id}`}
+                    >
+                      <div className="space-y-3.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="font-bold text-base text-white line-clamp-1">
+                            {proj.title}
+                          </h3>
+                          {renderStatusBadge(proj.status)}
+                        </div>
+
+                        <div
+                          className={`h-32 rounded-xl bg-gradient-to-br ${preset.gradient} p-4 flex flex-col justify-between relative overflow-hidden shadow-inner`}
+                        >
+                          <div className="flex items-center justify-between text-[11px] font-bold text-white/90">
+                            <span className="rounded-md bg-black/40 backdrop-blur px-2 py-0.5">
+                              {proj.aspectRatio}
+                            </span>
+                            <span className="rounded-md bg-black/40 backdrop-blur px-2 py-0.5">
+                              {proj.targetDurationSec}s
+                            </span>
+                          </div>
+                          <div className="text-xs font-semibold text-white drop-shadow line-clamp-2">
+                            {proj.scenes?.[0]?.title || proj.sourceText}
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-slate-400 line-clamp-2">{proj.sourceText}</p>
                       </div>
-                      <div className="h-28 rounded-lg bg-gradient-to-br from-indigo-950/80 via-slate-900 to-violet-950/60 border border-slate-800 flex flex-col items-center justify-center p-3 text-center">
-                        <span className="text-xs font-semibold text-indigo-300">
-                          {proj.style} • {proj.aspectRatio} • {proj.targetDurationSec}s
+
+                      <div className="pt-4 mt-4 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
+                        <span className="font-medium">
+                          {proj.scenes?.length || 0} scenes • {proj.language.toUpperCase()}
                         </span>
-                        <span className="text-[11px] text-slate-400 mt-1 line-clamp-1">
-                          {proj.scenes?.[0]?.title || proj.sourceText}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteProject(e, proj.id)}
+                          className="inline-flex items-center gap-1 text-rose-400 hover:underline text-xs cursor-pointer"
+                          aria-label={t(locale, 'deleteProjectBtn')}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {t(locale, 'deleteProjectBtn')}
+                        </button>
                       </div>
-                      <p className="text-xs text-slate-400 line-clamp-2">{proj.sourceText}</p>
-                    </div>
-                    <div className="pt-4 mt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                      <span>
-                        {proj.scenes?.length || 0} scenes • {proj.language.toUpperCase()}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteProject(e, proj.id)}
-                        className="text-rose-400 hover:underline text-xs"
-                        aria-label={t(locale, 'deleteProjectBtn')}
-                      >
-                        {t(locale, 'deleteProjectBtn')}
-                      </button>
-                    </div>
-                  </Card>
-                ))}
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -812,17 +1179,17 @@ export function StudioApp() {
 
         {/* SCREEN 3: NEW PROJECT WIZARD (3 STEPS) */}
         {view === 'wizard' && (
-          <div className="max-w-2xl mx-auto space-y-6" data-testid="wizard-screen">
-            <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-4">
+          <div className="max-w-3xl mx-auto space-y-6" data-testid="wizard-screen">
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-4">
               {[1, 2, 3].map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => setWizardStep(s as 1 | 2 | 3)}
-                  className={`flex-1 py-2 px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
+                  className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
                     wizardStep === s
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
+                      ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg'
+                      : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'
                   }`}
                 >
                   {s === 1
@@ -835,10 +1202,10 @@ export function StudioApp() {
             </div>
 
             {wizardStep === 1 && (
-              <Card className="p-6 space-y-5" data-testid="wizard-step-1">
+              <Card className="p-6 sm:p-8 space-y-6" data-testid="wizard-step-1">
                 {/* 1-Click Preset Templates */}
-                <div className="space-y-2">
-                  <span className="block text-xs font-medium text-indigo-300">
+                <div className="space-y-2.5">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-violet-300">
                     ✨ {t(locale, 'sampleTemplatesLabel')}
                   </span>
                   <div className="flex flex-wrap gap-2">
@@ -854,7 +1221,7 @@ export function StudioApp() {
                           setWizStyle(tpl.style);
                           setWizCharacters(tpl.characters);
                         }}
-                        className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-xs text-indigo-200 hover:bg-indigo-500/20"
+                        className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-3.5 py-2 text-xs font-semibold text-violet-200 hover:bg-violet-500/20 transition-all cursor-pointer"
                         data-testid={`template-btn-${idx}`}
                       >
                         {tpl.label}
@@ -864,7 +1231,7 @@ export function StudioApp() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                     {t(locale, 'projectTitleLabel')}
                   </label>
                   <Input
@@ -875,37 +1242,25 @@ export function StudioApp() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setWizSourceType('idea')}
-                    className={`p-3 rounded-lg border text-sm font-medium text-left ${
-                      wizSourceType === 'idea'
-                        ? 'border-indigo-500 bg-indigo-500/10 text-indigo-200'
-                        : 'border-slate-800 bg-slate-950 text-slate-400'
-                    }`}
-                  >
-                    💡 {t(locale, 'sourceTypeIdea')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWizSourceType('script')}
-                    className={`p-3 rounded-lg border text-sm font-medium text-left ${
-                      wizSourceType === 'script'
-                        ? 'border-indigo-500 bg-indigo-500/10 text-indigo-200'
-                        : 'border-slate-800 bg-slate-950 text-slate-400'
-                    }`}
-                  >
-                    📜 {t(locale, 'sourceTypeScript')}
-                  </button>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    {t(locale, 'sourceTextLabel')}
-                  </label>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      {t(locale, 'sourceTextLabel')}
+                    </label>
+                    <Button
+                      variant="magic"
+                      size="sm"
+                      onClick={handleMagicEnhanceIdea}
+                      disabled={enhancingScript}
+                    >
+                      <Wand2 className="h-3.5 w-3.5" />
+                      {enhancingScript
+                        ? 'AI đang viết...'
+                        : '✨ AI Mở Rộng Thành Kịch Bản Chi Tiết'}
+                    </Button>
+                  </div>
                   <Textarea
-                    rows={4}
+                    rows={5}
                     value={wizSourceText}
                     onChange={(e) => setWizSourceText(e.target.value)}
                     placeholder={t(locale, 'sourceTextPlaceholder')}
@@ -914,10 +1269,10 @@ export function StudioApp() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">
                     {t(locale, 'languageLabel')}
                   </label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {(['vi', 'en', 'mixed'] as const).map((lang) => (
                       <Button
                         key={lang}
@@ -926,32 +1281,38 @@ export function StudioApp() {
                         onClick={() => setWizLanguage(lang)}
                       >
                         {lang === 'vi'
-                          ? 'Tiếng Việt (VI)'
+                          ? '🇻🇳 Tiếng Việt (VI)'
                           : lang === 'en'
-                          ? 'English (EN)'
-                          : 'Song ngữ (Mixed)'}
+                          ? '🇺🇸 English (EN)'
+                          : '🌐 Song ngữ (Mixed)'}
                       </Button>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-300 mb-2.5">
                     {t(locale, 'styleLabel')}
                   </label>
-                  <div className="flex flex-wrap gap-2">
-                    {STYLE_CHIPS.map((st) => (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {STYLE_PRESETS.map((st) => (
                       <button
-                        key={st}
+                        key={st.id}
                         type="button"
-                        onClick={() => setWizStyle(st)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                          wizStyle === st
-                            ? 'bg-indigo-600 border-indigo-500 text-white'
-                            : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                        onClick={() => setWizStyle(st.id)}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                          wizStyle === st.id
+                            ? 'border-violet-400 bg-violet-500/15 shadow-lg shadow-violet-500/15'
+                            : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'
                         }`}
                       >
-                        {st}
+                        <div
+                          className={`h-8 w-full rounded-lg bg-gradient-to-r ${st.gradient} mb-2`}
+                        />
+                        <div className="text-xs font-bold text-white">{st.title}</div>
+                        <div className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">
+                          {st.desc}
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -966,9 +1327,14 @@ export function StudioApp() {
             )}
 
             {wizardStep === 2 && (
-              <Card className="p-6 space-y-5" data-testid="wizard-step-2">
+              <Card className="p-6 sm:p-8 space-y-5" data-testid="wizard-step-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-base font-semibold">{t(locale, 'wizardStep2')}</h3>
+                  <div>
+                    <h3 className="text-base font-bold">{t(locale, 'wizardStep2')}</h3>
+                    <p className="text-xs text-slate-400">
+                      Mô tả ngoại hình nhân vật sẽ được AI tự động khóa đồng nhất xuyên suốt mọi cảnh.
+                    </p>
+                  </div>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -979,7 +1345,8 @@ export function StudioApp() {
                       ])
                     }
                   >
-                    + {t(locale, 'addCharacterBtn')}
+                    <Plus className="h-3.5 w-3.5" />
+                    {t(locale, 'addCharacterBtn')}
                   </Button>
                 </div>
 
@@ -987,7 +1354,7 @@ export function StudioApp() {
                   {wizCharacters.map((char, idx) => (
                     <div
                       key={idx}
-                      className="p-4 rounded-lg border border-slate-800 bg-slate-950/60 space-y-3"
+                      className="p-4 rounded-2xl border border-white/10 bg-white/[0.03] space-y-3"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <Input
@@ -1051,9 +1418,9 @@ export function StudioApp() {
             )}
 
             {wizardStep === 3 && (
-              <Card className="p-6 space-y-6" data-testid="wizard-step-3">
+              <Card className="p-6 sm:p-8 space-y-6" data-testid="wizard-step-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-2">
+                  <label className="block text-xs font-semibold text-slate-300 mb-2.5">
                     {t(locale, 'aspectRatioLabel')}
                   </label>
                   <div className="grid grid-cols-3 gap-3">
@@ -1062,19 +1429,19 @@ export function StudioApp() {
                         key={ar}
                         type="button"
                         onClick={() => setWizAspectRatio(ar)}
-                        className={`p-4 rounded-xl border text-center font-medium ${
+                        className={`p-4 rounded-2xl border text-center font-semibold transition-all cursor-pointer ${
                           wizAspectRatio === ar
-                            ? 'border-indigo-500 bg-indigo-600/20 text-white'
-                            : 'border-slate-800 bg-slate-950 text-slate-400'
+                            ? 'border-violet-400 bg-violet-600/20 text-white shadow-lg'
+                            : 'border-white/10 bg-white/[0.03] text-slate-400'
                         }`}
                       >
-                        <div className="text-base font-bold">{ar}</div>
+                        <div className="text-lg font-extrabold">{ar}</div>
                         <div className="text-[11px] text-slate-400 mt-1">
                           {ar === '9:16'
-                            ? 'TikTok / Shorts'
+                            ? 'TikTok / Shorts / Reels'
                             : ar === '16:9'
-                            ? 'YouTube'
-                            : 'Square'}
+                            ? 'YouTube Widescreen'
+                            : 'Instagram / Square'}
                         </div>
                       </button>
                     ))}
@@ -1082,9 +1449,11 @@ export function StudioApp() {
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-xs font-medium text-slate-300 mb-2">
+                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-2">
                     <span>{t(locale, 'targetDurationLabel')}</span>
-                    <span className="text-indigo-400 font-bold">{wizTargetDuration}s</span>
+                    <span className="text-cyan-400 font-extrabold text-sm">
+                      {wizTargetDuration}s
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -1093,11 +1462,11 @@ export function StudioApp() {
                     step={5}
                     value={wizTargetDuration}
                     onChange={(e) => setWizTargetDuration(Number(e.target.value))}
-                    className="w-full accent-indigo-500"
+                    className="w-full accent-violet-500"
                   />
                   <div className="flex justify-between text-[11px] text-slate-500 mt-1">
                     <span>10s</span>
-                    <span>15s (Recommended)</span>
+                    <span>15s (TikTok/Shorts)</span>
                     <span>30s</span>
                     <span>60s</span>
                   </div>
@@ -1112,7 +1481,8 @@ export function StudioApp() {
                     disabled={submittingWizard}
                     data-testid="create-storyboard-btn"
                   >
-                    {submittingWizard ? '...' : `✨ ${t(locale, 'createStoryboardBtn')}`}
+                    <Sparkles className="h-4 w-4" />
+                    {submittingWizard ? 'Đang khởi tạo...' : t(locale, 'createStoryboardBtn')}
                   </Button>
                 </div>
               </Card>
@@ -1120,18 +1490,21 @@ export function StudioApp() {
           </div>
         )}
 
-        {/* PROJECT VIEW: STORYBOARD EDITOR / PROGRESS / RESULT */}
+        {/* PROJECT WORKSPACE: STORYBOARD EDITOR / PROGRESS / RESULT */}
         {view === 'project' && activeProject && (
           <div className="space-y-6">
-            {/* Project Header Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            {/* Project Studio Control Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-3">
-                  <h1 className="text-xl sm:text-2xl font-bold">{activeProject.title}</h1>
+                  <h1 className="text-xl sm:text-2xl font-extrabold text-white">
+                    {activeProject.title}
+                  </h1>
                   {renderStatusBadge(activeProject.status)}
                 </div>
                 <p className="text-xs text-slate-400">
-                  {activeProject.style} • {activeProject.aspectRatio} •{' '}
+                  Style: <strong className="text-violet-300">{activeProject.style}</strong> • Khung
+                  hình: <strong>{activeProject.aspectRatio}</strong> •{' '}
                   {t(locale, 'totalDurationLabel')}: <strong>{totalSceneDuration}s</strong> •{' '}
                   {t(locale, 'estimatedCostLabel')}: <strong>${estimatedCost}</strong>
                 </p>
@@ -1143,10 +1516,12 @@ export function StudioApp() {
                   forceEditorMode) && (
                   <>
                     <Button variant="secondary" size="sm" onClick={handleAddScene}>
-                      + {t(locale, 'addSceneBtn')}
+                      <Plus className="h-3.5 w-3.5" />
+                      {t(locale, 'addSceneBtn')}
                     </Button>
                     <Button variant="outline" size="sm" onClick={handleRegenerateStoryboard}>
-                      ↻ {t(locale, 'regenerateStoryboardBtn')}
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      {t(locale, 'regenerateStoryboardBtn')}
                     </Button>
                     <Button
                       variant="primary"
@@ -1154,7 +1529,8 @@ export function StudioApp() {
                       onClick={handleApproveAndGenerateVideo}
                       data-testid="approve-generate-btn"
                     >
-                      🚀 {t(locale, 'approveAndGenerateBtn')}
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {t(locale, 'approveAndGenerateBtn')}
                     </Button>
                   </>
                 )}
@@ -1164,182 +1540,227 @@ export function StudioApp() {
             {/* DRAFT / WAITING FOR STORYBOARD JOB */}
             {activeProject.status === 'draft' && activeProject.scenes.length === 0 && (
               <Card className="p-10 text-center space-y-4" data-testid="storyboard-loading">
-                <div className="text-lg font-semibold animate-pulse">
-                  ✨ Đang phân tích kịch bản và khởi tạo Storyboard...
+                <div className="text-lg font-bold text-violet-300 animate-pulse">
+                  ✨ AI Director đang phân tích kịch bản và dựng Storyboard...
                 </div>
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-24 w-full" />
               </Card>
             )}
 
-            {/* SCREEN 4: STORYBOARD EDITOR (with Drag-and-Drop + Inline Edit) */}
+            {/* SCREEN 4: STORYBOARD EDITOR (Split Studio View: Editor Cards + Live 60fps Preview Monitor) */}
             {(activeProject.status === 'storyboard_ready' ||
               forceEditorMode ||
               (activeProject.status === 'failed' && activeProject.scenes.length > 0)) && (
-              <div className="space-y-4" data-testid="storyboard-editor">
-                <p className="text-xs text-slate-400">💡 {t(locale, 'dragHint')}</p>
-                {activeProject.scenes.map((scene, idx) => {
-                  let dialogueArr: DialogueItem[] = [];
-                  try {
-                    dialogueArr = JSON.parse(scene.dialogue || '[]');
-                  } catch {}
-                  const primaryLine = dialogueArr[0] || {
-                    speaker: 'Narrator',
-                    text: scene.narration,
-                    language: activeProject.language === 'en' ? 'en' : 'vi',
-                  };
+              <div
+                className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start"
+                data-testid="storyboard-editor"
+              >
+                {/* Left 7 Columns: Editable Scene Cards */}
+                <div className="lg:col-span-7 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-400">💡 {t(locale, 'dragHint')}</p>
+                    <Badge variant="info">{activeProject.scenes.length} phân cảnh</Badge>
+                  </div>
 
-                  return (
-                    <Card
-                      key={scene.id}
-                      draggable
-                      onDragStart={() => setDraggedSceneIdx(idx)}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={() => {
-                        if (draggedSceneIdx !== null && draggedSceneIdx !== idx) {
-                          handleReorderScenes(draggedSceneIdx, idx);
-                        }
-                        setDraggedSceneIdx(null);
-                      }}
-                      className="p-5 space-y-4"
-                      data-testid={`scene-editor-card-${idx}`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                        <div className="flex items-center gap-2.5 flex-1">
-                          <span
-                            title="Drag handle"
-                            className="cursor-pointer h-7 w-7 rounded-full bg-indigo-600/20 border border-indigo-500/40 text-indigo-300 text-xs font-bold flex items-center justify-center"
-                          >
-                            #{idx + 1}
-                          </span>
-                          <Input
-                            value={scene.title}
-                            onChange={(e) =>
-                              handleSceneFieldUpdate(scene.id, { title: e.target.value })
-                            }
-                            className="max-w-md font-semibold"
-                            aria-label={t(locale, 'sceneTitleLabel')}
-                          />
-                        </div>
+                  {activeProject.scenes.map((scene, idx) => {
+                    let dialogueArr: DialogueItem[] = [];
+                    try {
+                      dialogueArr = JSON.parse(scene.dialogue || '[]');
+                    } catch {}
+                    const primaryLine = dialogueArr[0] || {
+                      speaker: 'Narrator',
+                      text: scene.narration,
+                      language: activeProject.language === 'en' ? 'en' : 'vi',
+                    };
 
-                        <div className="flex items-center gap-1.5">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={idx === 0}
-                            onClick={() => handleReorderScenes(idx, idx - 1)}
-                            aria-label={t(locale, 'moveUpBtn')}
-                          >
-                            ↑ {t(locale, 'moveUpBtn')}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={idx === activeProject.scenes.length - 1}
-                            onClick={() => handleReorderScenes(idx, idx + 1)}
-                            aria-label={t(locale, 'moveDownBtn')}
-                          >
-                            ↓ {t(locale, 'moveDownBtn')}
-                          </Button>
-                          {activeProject.scenes.length > 1 && (
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              onClick={() => handleDeleteScene(scene.id)}
-                              aria-label={t(locale, 'deleteSceneBtn')}
-                            >
-                              {t(locale, 'deleteSceneBtn')}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-xs font-medium text-slate-400 mb-1">
-                              {t(locale, 'dialogueLabel')} ({primaryLine.language.toUpperCase()})
-                            </label>
-                            <Textarea
-                              rows={2}
-                              value={primaryLine.text}
+                    return (
+                      <Card
+                        key={scene.id}
+                        draggable
+                        onDragStart={() => setDraggedSceneIdx(idx)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => {
+                          if (draggedSceneIdx !== null && draggedSceneIdx !== idx) {
+                            handleReorderScenes(draggedSceneIdx, idx);
+                          }
+                          setDraggedSceneIdx(null);
+                        }}
+                        onClick={() => setCinemaSceneIdx(idx)}
+                        className={`p-5 space-y-4 transition-all ${
+                          cinemaSceneIdx === idx
+                            ? 'border-violet-500/60 shadow-lg shadow-violet-500/10'
+                            : ''
+                        }`}
+                        data-testid={`scene-editor-card-${idx}`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+                          <div className="flex items-center gap-2.5 flex-1">
+                            <span className="cursor-pointer h-7 w-7 rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 text-white text-xs font-bold flex items-center justify-center shadow">
+                              #{idx + 1}
+                            </span>
+                            <Input
+                              value={scene.title}
                               onChange={(e) =>
-                                handleSceneFieldUpdate(scene.id, {
-                                  narration: e.target.value,
-                                  dialogue: [
-                                    {
-                                      speaker: primaryLine.speaker || 'Narrator',
-                                      text: e.target.value,
-                                      language: primaryLine.language || 'vi',
-                                    },
-                                  ],
-                                })
+                                handleSceneFieldUpdate(scene.id, { title: e.target.value })
                               }
+                              className="max-w-md font-bold"
+                              aria-label={t(locale, 'sceneTitleLabel')}
                             />
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs font-medium text-slate-400 mb-1">
-                                {t(locale, 'cameraMotionLabel')}
-                              </label>
-                              <select
-                                value={scene.cameraMotion}
-                                onChange={(e) =>
-                                  handleSceneFieldUpdate(scene.id, {
-                                    cameraMotion: e.target.value,
-                                  })
-                                }
-                                aria-label={t(locale, 'cameraMotionLabel')}
-                                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => playSceneVoicePreview(scene)}
+                              title="Nghe thử giọng đọc cảnh này"
+                            >
+                              <Volume2 className="h-3.5 w-3.5 text-cyan-400" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={idx === 0}
+                              onClick={() => handleReorderScenes(idx, idx - 1)}
+                              aria-label={t(locale, 'moveUpBtn')}
+                            >
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={idx === activeProject.scenes.length - 1}
+                              onClick={() => handleReorderScenes(idx, idx + 1)}
+                              aria-label={t(locale, 'moveDownBtn')}
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            </Button>
+                            {activeProject.scenes.length > 1 && (
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => handleDeleteScene(scene.id)}
+                                aria-label={t(locale, 'deleteSceneBtn')}
                               >
-                                {CAMERA_MOTIONS.map((cm) => (
-                                  <option key={cm} value={cm}>
-                                    {cm}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="block text-xs font-medium text-slate-400 mb-1">
-                                {t(locale, 'durationSecLabel')}:{' '}
-                                <strong className="text-indigo-400">{scene.durationSec}s</strong>
-                              </label>
-                              <input
-                                type="range"
-                                min={2}
-                                max={20}
-                                value={scene.durationSec}
-                                onChange={(e) =>
-                                  handleSceneFieldUpdate(scene.id, {
-                                    durationSec: Number(e.target.value),
-                                  })
-                                }
-                                className="w-full accent-indigo-500 mt-2"
-                                aria-label={t(locale, 'durationSecLabel')}
-                              />
-                            </div>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         </div>
 
-                        <div>
-                          <label className="block text-xs font-medium text-slate-400 mb-1">
-                            {t(locale, 'visualPromptLabel')}
-                          </label>
-                          <Textarea
-                            rows={5}
-                            value={scene.visualPrompt}
-                            onChange={(e) =>
-                              handleSceneFieldUpdate(scene.id, { visualPrompt: e.target.value })
-                            }
-                            aria-label={t(locale, 'visualPromptLabel')}
-                          />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                                🎙 {t(locale, 'dialogueLabel')} ({primaryLine.language.toUpperCase()})
+                              </label>
+                              <Textarea
+                                rows={3}
+                                value={primaryLine.text}
+                                onChange={(e) =>
+                                  handleSceneFieldUpdate(scene.id, {
+                                    narration: e.target.value,
+                                    dialogue: [
+                                      {
+                                        speaker: primaryLine.speaker || 'Narrator',
+                                        text: e.target.value,
+                                        language: primaryLine.language || 'vi',
+                                      },
+                                    ],
+                                  })
+                                }
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                                  🎥 {t(locale, 'cameraMotionLabel')}
+                                </label>
+                                <select
+                                  value={scene.cameraMotion}
+                                  onChange={(e) =>
+                                    handleSceneFieldUpdate(scene.id, {
+                                      cameraMotion: e.target.value,
+                                    })
+                                  }
+                                  aria-label={t(locale, 'cameraMotionLabel')}
+                                  className="w-full rounded-xl border border-white/10 bg-[#070911] px-3 py-2 text-xs text-slate-100"
+                                >
+                                  {CAMERA_MOTIONS.map((cm) => (
+                                    <option key={cm} value={cm}>
+                                      {cm}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                                  ⏱ {t(locale, 'durationSecLabel')}:{' '}
+                                  <strong className="text-cyan-400">{scene.durationSec}s</strong>
+                                </label>
+                                <input
+                                  type="range"
+                                  min={2}
+                                  max={20}
+                                  value={scene.durationSec}
+                                  onChange={(e) =>
+                                    handleSceneFieldUpdate(scene.id, {
+                                      durationSec: Number(e.target.value),
+                                    })
+                                  }
+                                  className="w-full accent-violet-500 mt-2"
+                                  aria-label={t(locale, 'durationSecLabel')}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1">
+                              🎨 {t(locale, 'visualPromptLabel')}
+                            </label>
+                            <Textarea
+                              rows={5}
+                              value={scene.visualPrompt}
+                              onChange={(e) =>
+                                handleSceneFieldUpdate(scene.id, { visualPrompt: e.target.value })
+                              }
+                              aria-label={t(locale, 'visualPromptLabel')}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    </Card>
-                  );
-                })}
+                      </Card>
+                    );
+                  })}
+                </div>
+
+                {/* Right 5 Columns: Sticky Live Studio Monitor */}
+                <Card className="lg:col-span-5 p-5 space-y-4 sticky top-20">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Layers className="h-4 w-4 text-violet-400" />
+                      <h3 className="text-sm font-bold">Live Studio Canvas Monitor</h3>
+                    </div>
+                    <Badge variant="info">Scene #{cinemaSceneIdx + 1}</Badge>
+                  </div>
+
+                  {cinemaScenes.length > 0 && (
+                    <CinemaCanvasPlayer
+                      scenes={cinemaScenes}
+                      styleName={activeProject.style}
+                      aspectRatio={activeProject.aspectRatio}
+                      showSubtitles={showSubtitles}
+                      activeSceneIdx={cinemaSceneIdx}
+                      isPlaying={cinemaPlaying}
+                      onSceneChange={setCinemaSceneIdx}
+                      onPlayStateChange={setCinemaPlaying}
+                      projectTitle={activeProject.title}
+                    />
+                  )}
+                </Card>
               </div>
             )}
 
@@ -1348,7 +1769,7 @@ export function StudioApp() {
               !forceEditorMode && (
                 <Card className="p-6 space-y-6" data-testid="generation-progress-screen">
                   <div className="space-y-1">
-                    <h2 className="text-lg font-bold">{t(locale, 'progressHeading')}</h2>
+                    <h2 className="text-lg font-bold text-white">{t(locale, 'progressHeading')}</h2>
                     <p className="text-xs text-slate-400">{t(locale, 'progressSub')}</p>
                   </div>
 
@@ -1365,10 +1786,10 @@ export function StudioApp() {
                       return (
                         <div
                           key={scene.id}
-                          className="p-4 rounded-lg border border-slate-800 bg-slate-950/60 space-y-2"
+                          className="p-4 rounded-xl border border-white/10 bg-white/[0.03] space-y-2"
                         >
                           <div className="flex items-center justify-between text-sm">
-                            <span className="font-medium">
+                            <span className="font-semibold">
                               #{idx + 1} — {scene.title}
                             </span>
                             <div className="flex items-center gap-2">
@@ -1405,22 +1826,34 @@ export function StudioApp() {
                 className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start"
                 data-testid="result-screen"
               >
-                {/* Video & Interactive Multi-Scene Cinema Preview Column */}
+                {/* Left 5 Columns: Cinema Canvas Monitor + MP4 / SRT Downloads */}
                 <Card className="lg:col-span-5 p-5 flex flex-col items-center space-y-4">
                   <div className="w-full flex items-center justify-between">
-                    <h2 className="font-bold text-base">{t(locale, 'resultHeading')}</h2>
-                    <Badge variant="info">{activeProject.aspectRatio}</Badge>
+                    <h2 className="font-bold text-base text-white">
+                      {t(locale, 'resultHeading')}
+                    </h2>
+                    <Badge variant="success">{activeProject.aspectRatio} • HD</Badge>
                   </div>
 
-                  <div
-                    className={`relative w-full overflow-hidden rounded-xl border border-slate-800 bg-black flex items-center justify-center ${
-                      activeProject.aspectRatio === '9:16'
-                        ? 'max-w-[280px] aspect-[9/16]'
-                        : activeProject.aspectRatio === '1:1'
-                        ? 'max-w-[340px] aspect-square'
-                        : 'aspect-video'
-                    }`}
-                  >
+                  {cinemaScenes.length > 0 && (
+                    <CinemaCanvasPlayer
+                      scenes={cinemaScenes}
+                      styleName={activeProject.style}
+                      aspectRatio={activeProject.aspectRatio}
+                      showSubtitles={showSubtitles}
+                      activeSceneIdx={cinemaSceneIdx}
+                      isPlaying={cinemaPlaying}
+                      onSceneChange={setCinemaSceneIdx}
+                      onPlayStateChange={setCinemaPlaying}
+                      projectTitle={activeProject.title}
+                    />
+                  )}
+
+                  {/* Standard <video> element for direct MP4 playback & automated E2E tests */}
+                  <details className="w-full text-xs text-slate-400">
+                    <summary className="cursor-pointer hover:text-slate-200 py-1">
+                      Trình phát file MP4 gốc (`final.mp4`)
+                    </summary>
                     <video
                       key={activeProject.finalVideoPath || 'video'}
                       src={
@@ -1430,93 +1863,32 @@ export function StudioApp() {
                       }
                       controls
                       playsInline
-                      className="h-full w-full object-contain"
+                      className="w-full rounded-xl mt-2 bg-black max-h-48"
                       data-testid="final-video-player"
                     />
-
-                    {/* Interactive Multi-Scene Cinema Visual Overlay when playing preview */}
-                    {cinemaPlaying && currentCinemaScene && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-950/90 via-slate-900/90 to-violet-950/90 p-4 flex flex-col justify-between">
-                        <div className="flex items-center justify-between text-[11px] text-indigo-300">
-                          <span>
-                            Scene #{cinemaSceneIdx + 1}/{activeProject.scenes.length}
-                          </span>
-                          <span>🎥 {currentCinemaScene.cameraMotion}</span>
-                        </div>
-                        <div className="my-auto text-center space-y-2">
-                          <div className="text-sm font-bold text-white">
-                            {currentCinemaScene.title}
-                          </div>
-                          <p className="text-[11px] text-slate-300 line-clamp-3">
-                            {currentCinemaScene.visualPrompt}
-                          </p>
-                        </div>
-                        <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
-                          <div className="h-full bg-indigo-500 w-full animate-pulse" />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Subtitle Overlay */}
-                    {showSubtitles && currentCinemaScene && (
-                      <div
-                        className="pointer-events-none absolute bottom-12 inset-x-3 text-center"
-                        data-testid="subtitle-overlay"
-                      >
-                        <span className="inline-block rounded bg-black/80 px-2.5 py-1 text-xs font-medium text-yellow-300 shadow">
-                          {(() => {
-                            try {
-                              const d = JSON.parse(currentCinemaScene.dialogue || '[]');
-                              return d[0]?.text || currentCinemaScene.narration;
-                            } catch {
-                              return currentCinemaScene.narration;
-                            }
-                          })()}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Interactive Multi-Scene + TTS Player Toggle */}
-                  <Button
-                    variant={cinemaPlaying ? 'danger' : 'primary'}
-                    size="sm"
-                    className="w-full"
-                    onClick={() => {
-                      if (cinemaPlaying) {
-                        setCinemaPlaying(false);
-                        audioRef.current?.pause();
-                      } else {
-                        setCinemaSceneIdx(0);
-                        setCinemaPlaying(true);
-                      }
-                    }}
-                    data-testid="cinema-preview-btn"
-                  >
-                    {cinemaPlaying
-                      ? `⏹ ${t(locale, 'stopPreviewBtn')}`
-                      : `▶ ${t(locale, 'cinemaPreviewBtn')}`}
-                  </Button>
+                  </details>
 
                   <div className="flex flex-wrap items-center justify-center gap-2 w-full pt-1">
                     {activeProject.finalVideoPath && (
                       <a
                         href={`/api/storage/${activeProject.finalVideoPath}?download=1`}
                         download={`${activeProject.title.replace(/\s+/g, '_')}.mp4`}
-                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-500"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white/[0.08] border border-white/15 px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/[0.14]"
                         data-testid="download-mp4-link"
                       >
-                        ⬇ {t(locale, 'downloadMp4Btn')}
+                        <Download className="h-3.5 w-3.5" />
+                        {t(locale, 'downloadMp4Btn')}
                       </a>
                     )}
                     {activeProject.subtitlePath && (
                       <a
                         href={`/api/storage/${activeProject.subtitlePath}?download=1`}
                         download={`${activeProject.title.replace(/\s+/g, '_')}.srt`}
-                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white/[0.08] border border-white/15 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-white/[0.14]"
                         data-testid="download-srt-link"
                       >
-                        📝 {t(locale, 'downloadSrtBtn')}
+                        <Subtitles className="h-3.5 w-3.5" />
+                        {t(locale, 'downloadSrtBtn')}
                       </a>
                     )}
                     <Button
@@ -1533,46 +1905,59 @@ export function StudioApp() {
                   </div>
                 </Card>
 
-                {/* Scene Breakdown, Single-Scene Regeneration & Job Logs Column */}
+                {/* Right 7 Columns: Scene Timeline Cards, Single-Scene Regenerate & Worker Job Logs */}
                 <div className="lg:col-span-7 space-y-4">
-                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-                    Scenes ({activeProject.scenes.length})
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+                      Phân Cảnh Hoàn Chỉnh ({activeProject.scenes.length})
+                    </h3>
+                    <span className="text-xs text-slate-400">
+                      Bấm vào cảnh bất kỳ để xem trên màn hình Cinema
+                    </span>
+                  </div>
+
                   {activeProject.scenes.map((scene, idx) => (
                     <Card
                       key={scene.id}
-                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                      onClick={() => setCinemaSceneIdx(idx)}
+                      className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer transition-all ${
+                        cinemaSceneIdx === idx
+                          ? 'border-violet-500/60 bg-violet-500/[0.07]'
+                          : 'hover:border-white/20'
+                      }`}
                       data-testid={`result-scene-card-${idx}`}
                     >
                       <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-indigo-400">#{idx + 1}</span>
-                          <h4 className="font-semibold text-sm">{scene.title}</h4>
+                          <span className="text-xs font-extrabold text-violet-400">
+                            #{idx + 1}
+                          </span>
+                          <h4 className="font-bold text-sm text-white">{scene.title}</h4>
                           <Badge variant="default">{scene.durationSec}s</Badge>
-                          <Badge variant="default">{scene.cameraMotion}</Badge>
+                          <Badge variant="info">{scene.cameraMotion}</Badge>
                         </div>
                         <p className="text-xs text-slate-300 line-clamp-1">{scene.narration}</p>
                         <p className="text-[11px] text-slate-500 line-clamp-1">
                           Prompt: {scene.visualPrompt}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {scene.audioPath && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => playSceneTtsAudio(scene.audioPath!)}
-                          >
-                            🔊 {t(locale, 'listenTtsBtn')}
-                          </Button>
-                        )}
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => playSceneVoicePreview(scene)}
+                        >
+                          <Volume2 className="h-3.5 w-3.5 text-cyan-400" />
+                          {t(locale, 'listenTtsBtn')}
+                        </Button>
                         <Button
                           variant="secondary"
                           size="sm"
                           onClick={() => handleRegenerateSingleScene(scene.id)}
                           data-testid={`regenerate-scene-btn-${idx}`}
                         >
-                          ↻ {t(locale, 'regenerateSceneBtn')}
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          {t(locale, 'regenerateSceneBtn')}
                         </Button>
                       </div>
                     </Card>
@@ -1580,18 +1965,19 @@ export function StudioApp() {
 
                   {/* Worker Job Logs Section */}
                   {activeProject.jobs && activeProject.jobs.length > 0 && (
-                    <Card className="p-4 space-y-2">
-                      <h4 className="text-xs font-semibold text-slate-400 uppercase">
+                    <Card className="p-4 space-y-2.5">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                         {t(locale, 'jobLogsHeading')}
                       </h4>
                       <div className="space-y-1.5 max-h-48 overflow-y-auto text-xs">
                         {activeProject.jobs.slice(0, 8).map((job) => (
                           <div
                             key={job.id}
-                            className="flex items-center justify-between border-b border-slate-800/60 pb-1 text-slate-300"
+                            className="flex items-center justify-between border-b border-white/5 pb-1.5 text-slate-300"
                           >
                             <span>
-                              <code>{job.type}</code> (attempts: {job.attempts})
+                              <code className="text-violet-300">{job.type}</code> (attempts:{' '}
+                              {job.attempts})
                             </span>
                             <div className="flex items-center gap-2">
                               {job.lastError && (
