@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=file:/app/storage/dev.db
+      - REDIS_URL=redis://redis:6379
+      - STORAGE_LOCAL_PATH=/app/storage
+    volumes:
+      - studio_storage:/app/storage
+    depends_on:
+      - redis
+    command: sh -c "npx prisma db push && npm run start"
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=file:/app/storage/dev.db
+      - REDIS_URL=redis://redis:6379
+      - STORAGE_LOCAL_PATH=/app/storage
+    volumes:
+      - studio_storage:/app/storage
+    depends_on:
+      - redis
+      - app
+    command: npm run worker
+
+volumes:
+  redis_data:
+  studio_storage:
+

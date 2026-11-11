@@ -1,0 +1,114 @@
+// Prisma schema for AI Video Studio (MVP: SQLite, easily switchable to PostgreSQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String
+  passwordHash   String
+  dailyQuotaUsed Int       @default(0)
+  quotaResetAt   DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  projects       Project[]
+}
+
+model Project {
+  id                String      @id @default(cuid())
+  userId            String
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title             String
+  sourceType        String      @default("idea") // "idea" | "script"
+  sourceText        String      @default("")
+  language          String      @default("vi")   // "vi" | "en" | "mixed"
+  aspectRatio       String      @default("9:16") // "9:16" | "16:9" | "1:1"
+  targetDurationSec Int         @default(15)
+  style             String      @default("realistic cinematic")
+  status            String      @default("draft") // "draft" | "storyboard_ready" | "generating" | "assembling" | "done" | "failed"
+  finalVideoPath    String?
+  subtitlePath      String?
+  lastError         String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  scenes            Scene[]
+  characters        Character[]
+  assets            Asset[]
+  jobs              Job[]
+
+  @@index([userId, createdAt])
+}
+
+model Scene {
+  id             String   @id @default(cuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  index          Int
+  title          String
+  narration      String   @default("")
+  dialogue       String   @default("[]") // JSON array of { speaker, text, language }
+  visualPrompt   String
+  negativePrompt String   @default("blurry, low quality, distorted faces, watermark, text overlay, deformed hands")
+  cameraMotion   String   @default("static") // "static" | "pan_left" | "pan_right" | "zoom_in" | "zoom_out" | "tilt_up" | "tilt_down" | "tracking"
+  durationSec    Int      @default(5)
+  characterRefs  String   @default("[]") // JSON array of character IDs or names
+  status         String   @default("pending") // "pending" | "submitted" | "running" | "done" | "failed"
+  videoPath      String?
+  audioPath      String?
+  providerJobId  String?
+  attempts       Int      @default(0)
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([projectId, index])
+}
+
+model Character {
+  id                 String   @id @default(cuid())
+  projectId          String
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name               String
+  description        String
+  referenceImagePath String?
+  createdAt          DateTime @default(now())
+
+  @@index([projectId])
+}
+
+model Job {
+  id        String    @id @default(cuid())
+  projectId String?
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type      String    // "storyboard" | "scene_video" | "scene_tts" | "assemble"
+  payload   String    // JSON string
+  status    String    @default("pending") // "pending" | "running" | "done" | "failed"
+  attempts  Int       @default(0)
+  runAt     DateTime  @default(now())
+  lockedAt  DateTime?
+  lastError String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, runAt])
+  @@index([projectId])
+}
+
+model Asset {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind        String   // "video" | "audio" | "image" | "music" | "subtitle"
+  path        String
+  durationSec Float?
+  createdAt   DateTime @default(now())
+
+  @@index([projectId, kind])
+}
+

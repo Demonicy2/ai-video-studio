@@ -1,0 +1,11 @@
+node_modules/
+.next/
+dist/
+storage/
+*.db
+*.db-wal
+*.db-shm
+.env
+playwright-report/
+test-results/
+
